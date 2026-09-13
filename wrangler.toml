@@ -1,0 +1,6 @@
+name = "top-climb-ai-coach"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[ai]
+binding = "AI"
