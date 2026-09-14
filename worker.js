@@ -34,20 +34,27 @@ function extractJSON(text) {
   const cleaned = String(text).replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("Aucun JSON trouvé dans la réponse");
+  if (start === -1 || end === -1) throw new Error("Aucun JSON trouvé dans la réponse: " + cleaned.slice(0, 300));
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-async function askModel(env, systemPrompt, userPrompt) {
+// Utilise le "JSON Mode" de Cloudflare Workers AI : on fournit un schéma JSON et
+// le modèle est contraint de répondre exactement dans cette forme, au lieu de
+// simplement lui demander en texte de "répondre en JSON" (ce qui échouait parfois).
+async function askModel(env, systemPrompt, userPrompt, jsonSchema) {
   const result = await env.AI.run(MODEL, {
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
     max_tokens: 2000,
+    response_format: jsonSchema
+      ? { type: "json_schema", json_schema: jsonSchema }
+      : undefined,
   });
   if (result && typeof result.response === "string") return result.response;
-  if (result && typeof result.response === "object") return result.response;
+  if (result && typeof result.response === "object" && result.response !== null) return result.response;
+  if (result && result.error) throw new Error(String(result.error));
   return result || "";
 }
 
@@ -81,7 +88,12 @@ export default {
         const user = `Points techniques cochés: ${JSON.stringify(
           data.pointsGeneraux || []
         )}\nNotes horodatées: ${JSON.stringify(data.notesHorodatees || [])}`;
-        const raw = await askModel(env, system, user);
+        const schema = {
+          type: "object",
+          properties: { text: { type: "string" } },
+          required: ["text"],
+        };
+        const raw = await askModel(env, system, user, schema);
         return Response.json(extractJSON(raw), { headers: corsHeaders() });
       }
 
@@ -99,7 +111,38 @@ export default {
         const user = `Description du grimpeur: ${data.description}\nPlanning actuel (peut être vide): ${JSON.stringify(
           data.planningActuel || {}
         )}`;
-        const raw = await askModel(env, system, user);
+        const jour = {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              time: { type: "string" },
+              endTime: { type: "string" },
+              label: { type: "string" },
+            },
+            required: ["time", "endTime", "label"],
+          },
+        };
+        const schema = {
+          type: "object",
+          properties: {
+            schedule: {
+              type: "object",
+              properties: {
+                lundi: jour,
+                mardi: jour,
+                mercredi: jour,
+                jeudi: jour,
+                vendredi: jour,
+                samedi: jour,
+                dimanche: jour,
+              },
+              required: ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
+            },
+          },
+          required: ["schedule"],
+        };
+        const raw = await askModel(env, system, user, schema);
         return Response.json(extractJSON(raw), { headers: corsHeaders() });
       }
 
@@ -121,7 +164,25 @@ export default {
         }\nTemps disponible: ${data.dureeMinutes || 15} minutes\nBibliothèque d'exercices disponibles: ${JSON.stringify(
           data.bibliotheque || []
         )}`;
-        const raw = await askModel(env, system, user);
+        const schema = {
+          type: "object",
+          properties: {
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  label: { type: "string" },
+                  categoryLabel: { type: "string" },
+                  seconds: { type: "number" },
+                },
+                required: ["label", "categoryLabel", "seconds"],
+              },
+            },
+          },
+          required: ["items"],
+        };
+        const raw = await askModel(env, system, user, schema);
         return Response.json(extractJSON(raw), { headers: corsHeaders() });
       }
 
@@ -134,3 +195,4 @@ export default {
     }
   },
 };
+      
