@@ -31,11 +31,62 @@ function corsHeaders() {
 
 function extractJSON(text) {
   if (text && typeof text === "object") return text;
-  const cleaned = String(text).replace(/```json|```/g, "").trim();
+  let cleaned = String(text).replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
+  if (start === -1) throw new Error("Aucun JSON trouvé dans la réponse: " + cleaned.slice(0, 300));
+  cleaned = cleaned.slice(start);
+
+  // Tentative directe : la réponse se termine proprement.
   const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("Aucun JSON trouvé dans la réponse: " + cleaned.slice(0, 300));
-  return JSON.parse(cleaned.slice(start, end + 1));
+  if (end !== -1) {
+    try {
+      return JSON.parse(cleaned.slice(0, end + 1));
+    } catch {
+      // on continue vers la réparation ci-dessous
+    }
+  }
+
+  // Réparation : la réponse a été coupée en plein milieu (max_tokens atteint,
+  // ou modèle qui ajoute du texte parasite). On cherche le plus grand préfixe
+  // qui se termine juste après un "}" ou "]" complet (hors chaîne de
+  // caractères), puis on referme les accolades/crochets encore ouverts.
+  let inStr = false,
+    esc = false;
+  const stack = [];
+  let lastSafeCut = -1;
+  let stackAtCut = [];
+  for (let i = 0; i < cleaned.length; i++) {
+    const c = cleaned[i];
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (c === "\\") {
+      esc = true;
+      continue;
+    }
+    if (c === '"') {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (c === "{" || c === "[") stack.push(c);
+    else if (c === "}" || c === "]") stack.pop();
+    if (c === "}" || c === "]") {
+      lastSafeCut = i;
+      stackAtCut = stack.slice();
+    }
+  }
+  if (lastSafeCut !== -1) {
+    let closing = "";
+    for (let i = stackAtCut.length - 1; i >= 0; i--) closing += stackAtCut[i] === "{" ? "}" : "]";
+    try {
+      return JSON.parse(cleaned.slice(0, lastSafeCut + 1) + closing);
+    } catch {
+      // dernier recours ci-dessous
+    }
+  }
+  throw new Error("Réponse IA tronquée ou invalide: " + cleaned.slice(0, 300));
 }
 
 // Utilise le "JSON Mode" de Cloudflare Workers AI : on fournit un schéma JSON et
@@ -47,7 +98,7 @@ async function askModel(env, systemPrompt, userPrompt, jsonSchema) {
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    max_tokens: 2000,
+    max_tokens: 3000,
     response_format: jsonSchema
       ? { type: "json_schema", json_schema: jsonSchema }
       : undefined,
@@ -212,4 +263,4 @@ export default {
     }
   },
 };
-               
+              
