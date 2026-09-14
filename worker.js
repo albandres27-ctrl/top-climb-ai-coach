@@ -164,6 +164,12 @@ export default {
         }\nTemps disponible: ${data.dureeMinutes || 15} minutes\nBibliothèque d'exercices disponibles: ${JSON.stringify(
           data.bibliotheque || []
         )}`;
+        const bibliotheque = data.bibliotheque || [];
+        const nomsAutorises = bibliotheque.map((ex) => ex.name).filter(Boolean);
+        const labelSchema =
+          nomsAutorises.length > 0
+            ? { type: "string", enum: nomsAutorises }
+            : { type: "string" };
         const schema = {
           type: "object",
           properties: {
@@ -172,7 +178,7 @@ export default {
               items: {
                 type: "object",
                 properties: {
-                  label: { type: "string" },
+                  label: labelSchema,
                   categoryLabel: { type: "string" },
                   seconds: { type: "number" },
                 },
@@ -183,7 +189,18 @@ export default {
           required: ["items"],
         };
         const raw = await askModel(env, system, user, schema);
-        return Response.json(extractJSON(raw), { headers: corsHeaders() });
+        const parsed = extractJSON(raw);
+        // Filet de sécurité supplémentaire : même avec le schéma, on retire toute
+        // ligne dont le nom ne correspond à aucun exercice de la bibliothèque, et
+        // on recolle la bonne catégorie (celle de la bibliothèque, pas celle que
+        // le modèle a pu inventer).
+        if (nomsAutorises.length > 0 && Array.isArray(parsed.items)) {
+          const parCategorie = new Map(bibliotheque.map((ex) => [ex.name, ex.categoryLabel]));
+          parsed.items = parsed.items
+            .filter((it) => parCategorie.has(it.label))
+            .map((it) => ({ ...it, categoryLabel: parCategorie.get(it.label) }));
+        }
+        return Response.json(parsed, { headers: corsHeaders() });
       }
 
       return Response.json({ error: "type inconnu" }, { status: 400, headers: corsHeaders() });
@@ -195,4 +212,4 @@ export default {
     }
   },
 };
-      
+               
