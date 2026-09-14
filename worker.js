@@ -1,3 +1,24 @@
+/**
+ * Version 100% gratuite du serveur IA pour Top Climb.
+ *
+ * Au lieu d'appeler l'API Anthropic (payante), ce Worker utilise Cloudflare
+ * Workers AI avec un modèle open-source (Llama 3.1), inclus gratuitement :
+ *   - 10 000 "Neurons" par jour, sans carte bancaire
+ *   - hébergement du Worker lui-même gratuit (100 000 requêtes/jour)
+ *
+ * Qualité : un peu en retrait par rapport à Claude sur des retours très fins,
+ * mais largement suffisant pour un bilan technique, un planning ou un
+ * échauffement structuré.
+ *
+ * Déploiement (aucune carte bancaire nécessaire) :
+ *   1. npm install -g wrangler
+ *   2. wrangler login   (connecte ton compte Cloudflare gratuit)
+ *   3. Depuis ce dossier : wrangler deploy
+ *   4. Tu obtiens une URL du type https://top-climb-ai-coach.<ton-compte>.workers.dev
+ *   5. Dans le fichier top-climb-app.html, remplace AI_ENDPOINT par
+ *      "https://top-climb-ai-coach.<ton-compte>.workers.dev/api/ai-coach"
+ */
+
 const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 
 function corsHeaders() {
